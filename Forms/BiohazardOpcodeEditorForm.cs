@@ -577,5 +577,29 @@ namespace Tool_Hazard.Forms
 
             RefreshGrid();
         }
+
+        private void duplicateInstructionToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            int i = SelectedInstructionIndex;
+            if (i < 0 || i >= _instructions.Count)
+                return;
+
+            var src = _instructions[i];
+
+            // Deep-copy parameters so edits don't affect the original
+            var copy = new ScdInstruction
+            {
+                Opcode = src.Opcode,
+                Definition = src.Definition,
+                Parameters = new Dictionary<string, object>(src.Parameters)
+            };
+
+            _instructions.Insert(i + 1, copy);
+            RefreshGrid();
+
+            // Optional: select the duplicated row
+            if (i + 1 < gridOpcodes.Rows.Count)
+                gridOpcodes.Rows[i + 1].Selected = true;
+        }
     }
 }

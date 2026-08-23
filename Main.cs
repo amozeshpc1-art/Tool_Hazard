@@ -1,10 +1,12 @@
 ﻿using IntelOrca.Biohazard;
+using Tool_Hazard.Biohazard.GCA;
 using System.Media;
 using System.Reflection;
 using System.Text;
 using Tool_Hazard.Biohazard;
 using Tool_Hazard.Biohazard.emd;
 using Tool_Hazard.Biohazard.RDT;
+using Tool_Hazard.Biohazard.GCA;
 using Tool_Hazard.Forms;
 using Tool_Hazard.Nintendo;
 using Tool_Hazard.Sony_PS1;
@@ -1559,6 +1561,33 @@ namespace Tool_Hazard
                 MessageBox.Show($"Failed to open documentation URL:\n{ex.Message}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        //RE4 (2007) GCA Unpack & Menu Hook
+        private void extractToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            //RE4 (2007) GCA Unpack
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Filter = "Resident Evil 4 (2007) (*.gca)|*.DAT|All files (*.*)|*.*";
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string selectedFile = openFileDialog.FileName;
+
+                    //try catch errors
+                    try
+                    {
+                        Biohazard.GCA.Extract.ExtractFile(selectedFile);
+                        //EmdTool.Unpack(selectedFile, BioVersion.Biohazard1, EmdTool.Format.Original);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error:\n{ex.Message}", "GCA Tool",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+            //Repack.RepackFile(filePath);
         }
     }
 }
