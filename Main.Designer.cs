@@ -226,7 +226,7 @@
             menuStrip1.Padding = new Padding(7, 3, 0, 3);
             menuStrip1.RenderMode = ToolStripRenderMode.Professional;
             menuStrip1.ShowItemToolTips = true;
-            menuStrip1.Size = new Size(816, 54);
+            menuStrip1.Size = new Size(816, 78);
             menuStrip1.TabIndex = 0;
             menuStrip1.Text = "menuStrip1";
             // 
@@ -1136,8 +1136,8 @@
             // 
             rE42005ToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { gCAPC2007ToolStripMenuItem });
             rE42005ToolStripMenuItem.Name = "rE42005ToolStripMenuItem";
-            rE42005ToolStripMenuItem.Size = new Size(94, 24);
-            rE42005ToolStripMenuItem.Text = "RE4 (2005)";
+            rE42005ToolStripMenuItem.Size = new Size(132, 24);
+            rE42005ToolStripMenuItem.Text = "RE4/BIO4 (2005)";
             // 
             // gCAPC2007ToolStripMenuItem
             // 
