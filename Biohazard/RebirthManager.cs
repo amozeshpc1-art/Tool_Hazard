@@ -1,19 +1,65 @@
 ﻿using IntelOrca.Biohazard;
 using SevenZipExtractor;
 using System.Diagnostics;
+using System.IO.Compression;
+using System.Net;
 
 public class RebirthManager
 {
-    private readonly HttpClient _http = new HttpClient();
+    private readonly HttpClient _http;
 
-    // Direct 7z files (the actual targets behind the “Download” buttons)
-    private const string RE1_URL = "https://classicrebirth.com/index.php/download/resident-evil-dll-fix-for-classic-edition/?wpdmdl=381&refresh=691b62859375e1763402373";
-    private const string RE2_URL = "https://classicrebirth.com/index.php/download/resident-evil-2-classic-rebirth/?wpdmdl=390&refresh=691b6273e6eeb1763402355";
-    private const string RE3_URL = "https://classicrebirth.com/index.php/download/resident-evil-3-classic-rebirth/?wpdmdl=1327&refresh=691b622263d691763402274";
-    private const string RE_SUR = "https://classicrebirth.com/index.php/download/resident-evil-3-classic-rebirth/?wpdmdl=1327&refresh=691b622263d691763402274";
+    // -------------------------------------------------------------------------
+    // Download URLs
+    // -------------------------------------------------------------------------
 
-    // Classic Rebirth always uses this file
+    private const string RE1_URL =
+        "https://classicrebirth.com/index.php/download/resident-evil-dll-fix-for-classic-edition/?wpdmdl=381&refresh=691b62859375e1763402373";
+
+    private const string RE2_URL =
+        "https://classicrebirth.com/index.php/download/resident-evil-2-classic-rebirth/?wpdmdl=390&refresh=691b6273e6eeb1763402355";
+
+    private const string RE3_URL =
+        "https://classicrebirth.com/index.php/download/resident-evil-3-classic-rebirth/?wpdmdl=1327&refresh=691b622263d691763402274";
+
+    private const string RE_SUR =
+        "https://classicrebirth.com/index.php/download/resident-evil-3-classic-rebirth/?wpdmdl=1327&refresh=691b622263d691763402274";
+
+    // Classic Rebirth DLL
     private const string CR_DLL = "ddraw.dll";
+
+
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+
+    public RebirthManager()
+    {
+        var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+
+            AutomaticDecompression =
+                DecompressionMethods.GZip |
+                DecompressionMethods.Deflate |
+                DecompressionMethods.Brotli
+        };
+
+        _http = new HttpClient(handler);
+
+        // Make the request look like a normal browser request.
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+            "AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/151.0.0.0 Safari/537.36"
+        );
+
+        _http.Timeout = TimeSpan.FromMinutes(10);
+    }
+
+
+    // -------------------------------------------------------------------------
+    // Get download URL
+    // -------------------------------------------------------------------------
 
     private string GetDownloadUrl(BioVersion version)
     {
@@ -23,16 +69,31 @@ public class RebirthManager
             BioVersion.Biohazard2 => RE2_URL,
             BioVersion.Biohazard3 => RE3_URL,
             BioVersion.BiohazardSurvivor => RE_SUR,
-            _ => throw new ArgumentOutOfRangeException()
+
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(version),
+                version,
+                "Unsupported BioVersion."
+            )
         };
     }
 
-    // ----- Detection & Version Check -----
+
+    // -------------------------------------------------------------------------
+    // Installation detection
+    // -------------------------------------------------------------------------
 
     public bool IsInstalled(string gameDir)
     {
-        return File.Exists(Path.Combine(gameDir, CR_DLL));
+        return File.Exists(
+            Path.Combine(gameDir, CR_DLL)
+        );
     }
+
+
+    // -------------------------------------------------------------------------
+    // Get installed DLL version
+    // -------------------------------------------------------------------------
 
     public string GetInstalledVersion(string gameDir)
     {
@@ -52,25 +113,186 @@ public class RebirthManager
         }
     }
 
-    // ----- Extracts the DLL from the archive to a temp location and checks its version ----- 
+
+    // -------------------------------------------------------------------------
+    // Detect archive type
+    //
+    // Returns:
+    // "7z"
+    // "zip"
+    // null = unknown/invalid
+    // -------------------------------------------------------------------------
+
+    private string GetArchiveType(string filePath)
+    {
+        try
+        {
+            if (!File.Exists(filePath))
+                return null;
+
+            byte[] header = new byte[8];
+
+            using (var fs = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read))
+            {
+                int bytesRead = fs.Read(
+                    header,
+                    0,
+                    header.Length
+                );
+
+                if (bytesRead < 4)
+                    return null;
+            }
+
+            // -------------------------------------------------------------
+            // 7z signature:
+            //
+            // 37 7A BC AF 27 1C
+            // -------------------------------------------------------------
+
+            if (header[0] == 0x37 &&
+                header[1] == 0x7A &&
+                header[2] == 0xBC &&
+                header[3] == 0xAF &&
+                header[4] == 0x27 &&
+                header[5] == 0x1C)
+            {
+                return "7z";
+            }
+
+            // -------------------------------------------------------------
+            // ZIP signatures:
+            //
+            // 50 4B 03 04 = normal ZIP
+            // 50 4B 05 06 = empty ZIP
+            // 50 4B 07 08 = spanned ZIP
+            // -------------------------------------------------------------
+
+            if (header[0] == 0x50 &&
+                header[1] == 0x4B &&
+                (
+                    (header[2] == 0x03 && header[3] == 0x04) ||
+                    (header[2] == 0x05 && header[3] == 0x06) ||
+                    (header[2] == 0x07 && header[3] == 0x08)
+                ))
+            {
+                return "zip";
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+
+    // -------------------------------------------------------------------------
+    // Get DLL version from archive
+    //
+    // Supports both ZIP and 7z.
+    // -------------------------------------------------------------------------
+
     private string GetArchiveDllVersion(string archivePath)
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), "CR_VersionCheck_" + Guid.NewGuid());
+        string archiveType = GetArchiveType(archivePath);
+
+        if (archiveType == null)
+            return null;
+
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            "CR_VersionCheck_" +
+            Guid.NewGuid().ToString("N")
+        );
+
         Directory.CreateDirectory(tempDir);
 
         try
         {
-            using (var archive = new ArchiveFile(archivePath))
+            // =============================================================
+            // ZIP
+            // =============================================================
+
+            if (archiveType == "zip")
             {
-                foreach (var entry in archive.Entries)
+                using (var zip = ZipFile.OpenRead(archivePath))
                 {
-                    if (!entry.IsFolder &&
-                        entry.FileName.Equals(CR_DLL, StringComparison.OrdinalIgnoreCase))
+                    foreach (var entry in zip.Entries)
                     {
-                        string dllPath = Path.Combine(tempDir, CR_DLL);
+                        if (string.IsNullOrEmpty(entry.Name))
+                            continue;
+
+                        if (!entry.Name.Equals(
+                                CR_DLL,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        string dllPath = Path.Combine(
+                            tempDir,
+                            CR_DLL
+                        );
+
+                        entry.ExtractToFile(
+                            dllPath,
+                            true
+                        );
+
+                        if (!File.Exists(dllPath))
+                            return null;
+
+                        var info =
+                            FileVersionInfo.GetVersionInfo(dllPath);
+
+                        return info.FileVersion;
+                    }
+                }
+            }
+
+            // =============================================================
+            // 7Z
+            // =============================================================
+
+            else if (archiveType == "7z")
+            {
+                using (var archive =
+                    new ArchiveFile(archivePath))
+                {
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (entry.IsFolder)
+                            continue;
+
+                        string fileName =
+                            Path.GetFileName(entry.FileName);
+
+                        if (!fileName.Equals(
+                                CR_DLL,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        string dllPath = Path.Combine(
+                            tempDir,
+                            CR_DLL
+                        );
+
                         entry.Extract(dllPath);
 
-                        var info = FileVersionInfo.GetVersionInfo(dllPath);
+                        if (!File.Exists(dllPath))
+                            return null;
+
+                        var info =
+                            FileVersionInfo.GetVersionInfo(dllPath);
+
                         return info.FileVersion;
                     }
                 }
@@ -82,114 +304,493 @@ public class RebirthManager
         }
         finally
         {
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // Ignore cleanup failures.
+            }
         }
 
         return null;
     }
 
 
-    // ----- Installation -----
+    // -------------------------------------------------------------------------
+    // Download archive
+    // -------------------------------------------------------------------------
 
-    public async Task Install(BioVersion version, string gameDir)
+    private async Task<bool> DownloadArchive(
+        string url,
+        string destination)
+    {
+        try
+        {
+            using (var response = await _http.GetAsync(
+                url,
+                HttpCompletionOption.ResponseHeadersRead))
+            {
+                response.EnsureSuccessStatusCode();
+
+                Uri finalUri =
+                    response.RequestMessage?.RequestUri;
+
+                string contentType =
+                    response.Content.Headers.ContentType?.MediaType
+                    ?? "Unknown";
+
+                await using (var input =
+                    await response.Content.ReadAsStreamAsync())
+
+                await using (var output =
+                    new FileStream(
+                        destination,
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.None))
+                {
+                    await input.CopyToAsync(output);
+                }
+
+                string archiveType =
+                    GetArchiveType(destination);
+
+                // ---------------------------------------------------------
+                // We successfully downloaded an archive.
+                // ---------------------------------------------------------
+
+                if (archiveType != null)
+                    return true;
+
+
+                // ---------------------------------------------------------
+                // Not a recognised archive.
+                // ---------------------------------------------------------
+
+                long size = 0;
+
+                try
+                {
+                    size =
+                        new FileInfo(destination).Length;
+                }
+                catch
+                {
+                    // Ignore.
+                }
+
+                MessageBox.Show(
+                    "The downloaded file is not a recognised " +
+                    "ZIP or 7z archive.\n\n" +
+
+                    $"Content-Type: {contentType}\n" +
+                    $"Downloaded size: {size:N0} bytes\n\n" +
+
+                    $"Final URL:\n{finalUri}\n\n" +
+
+                    "The website may have returned an HTML page " +
+                    "or another unexpected response.",
+                    "Invalid Download",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+
+                return false;
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            MessageBox.Show(
+                $"Could not download Classic Rebirth:\n\n{ex.Message}",
+                "Download Error",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+
+            return false;
+        }
+        catch (TaskCanceledException)
+        {
+            MessageBox.Show(
+                "The download timed out or was cancelled.",
+                "Download Error",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Download error:\n\n{ex.Message}",
+                "Download Error",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+
+            return false;
+        }
+    }
+
+
+    // -------------------------------------------------------------------------
+    // Installation
+    // -------------------------------------------------------------------------
+
+    public async Task Install(
+        BioVersion version,
+        string gameDir)
     {
         if (!Directory.Exists(gameDir))
         {
-            MessageBox.Show("Selected game directory does not exist.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(
+                "Selected game directory does not exist.",
+                "Error",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+
             return;
         }
 
-        string url = GetDownloadUrl(version);
-        string temp7z = Path.Combine(Path.GetTempPath(), $"{version}_CR.7z");
+        string url =
+            GetDownloadUrl(version);
+
+        string tempArchive = Path.Combine(
+            Path.GetTempPath(),
+            $"{version}_CR_{Guid.NewGuid():N}.archive"
+        );
 
         try
         {
-            // Download the archive
-            using (var resp = await _http.GetAsync(url))
+            // -------------------------------------------------------------
+            // Download
+            // -------------------------------------------------------------
+
+            bool downloaded =
+                await DownloadArchive(
+                    url,
+                    tempArchive
+                );
+
+            if (!downloaded)
+                return;
+
+
+            // -------------------------------------------------------------
+            // Determine archive type
+            // -------------------------------------------------------------
+
+            string archiveType =
+                GetArchiveType(tempArchive);
+
+            if (archiveType == null)
             {
-                resp.EnsureSuccessStatusCode();
-                await using var fs = new FileStream(temp7z, FileMode.Create);
-                await resp.Content.CopyToAsync(fs);
+                MessageBox.Show(
+                    "Unable to determine the downloaded archive type.",
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+
+                return;
             }
 
-            // If already installed -> compare versions FIRST
+
+            // -------------------------------------------------------------
+            // Existing installation
+            // -------------------------------------------------------------
+
             if (IsInstalled(gameDir))
             {
-                string install_ver = GetInstalledVersion(gameDir);
-                string archive_ver = GetArchiveDllVersion(temp7z);
+                string installVer =
+                    GetInstalledVersion(gameDir);
 
-                // If we could read both versions and they match -> no need to update
-                if (!string.IsNullOrEmpty(install_ver) &&
-                    !string.IsNullOrEmpty(archive_ver) &&
-                    string.Equals(install_ver, archive_ver, StringComparison.OrdinalIgnoreCase))
+                string archiveVer =
+                    GetArchiveDllVersion(tempArchive);
+
+
+                // Same version = nothing to do.
+                if (!string.IsNullOrEmpty(installVer) &&
+                    !string.IsNullOrEmpty(archiveVer) &&
+                    string.Equals(
+                        installVer,
+                        archiveVer,
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     MessageBox.Show(
-                        $"Classic Rebirth is already up to date.\n\nInstalled version: {install_ver}\nLatest version: {archive_ver ?? "Unknown"}",
+                        "Classic Rebirth is already up to date.\n\n" +
+                        $"Installed version: {installVer}\n" +
+                        $"Latest version: {archiveVer}",
                         "No Update Needed",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information
                     );
+
                     return;
                 }
 
-                // Otherwise ask to update (only when it actually differs / unknown)
-                System.Media.SystemSounds.Exclamation.Play(); // grab attention
-                DialogResult ask = MessageBox.Show(
-                    $"Classic Rebirth detected.\nInstalled version: {install_ver ?? "Unknown"}\nAvailable version: {archive_ver ?? "Unknown"}\n\nUpdate to latest?",
-                    "Classic Rebirth Installer",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question
-                );
+
+                // Ask before replacing the installation.
+                System.Media.SystemSounds.Exclamation.Play();
+
+                DialogResult ask =
+                    MessageBox.Show(
+                        "Classic Rebirth is already installed.\n\n" +
+                        $"Installed version: " +
+                        $"{installVer ?? "Unknown"}\n" +
+                        $"Available version: " +
+                        $"{archiveVer ?? "Unknown"}\n\n" +
+                        "Update to the latest version?",
+                        "Classic Rebirth Installer",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question
+                    );
 
                 if (ask == DialogResult.No)
                     return;
             }
 
-            // Extract archive
-            if (!Extract7z(temp7z, gameDir))
-            {
-                MessageBox.Show(
-                    "Extraction failed. Make sure 7z.exe exists in /7zip/ folder.",
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-                return;
-            }
 
-            MessageBox.Show($"{version} Classic Rebirth installed/updated successfully.", "Done!");
+            // -------------------------------------------------------------
+            // Extract
+            // -------------------------------------------------------------
+
+            bool extracted =
+                ExtractArchive(
+                    tempArchive,
+                    gameDir
+                );
+
+            if (!extracted)
+                return;
+
+
+            // -------------------------------------------------------------
+            // Success
+            // -------------------------------------------------------------
+
+            MessageBox.Show(
+                $"{version} Classic Rebirth " +
+                "installed/updated successfully.",
+                "Done",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Installation error:\n{ex.Message}", "Error");
+            MessageBox.Show(
+                $"Installation error:\n\n{ex.Message}",
+                "Error",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
         }
         finally
         {
-            if (File.Exists(temp7z))
-                File.Delete(temp7z);
+            try
+            {
+                if (File.Exists(tempArchive))
+                    File.Delete(tempArchive);
+            }
+            catch
+            {
+                // Ignore cleanup failures.
+            }
         }
     }
 
-    // ----- Extract using 7z.exe -----
 
-    private bool Extract7z(string archive, string outputDir)
+    // -------------------------------------------------------------------------
+    // Extract ZIP or 7z
+    // -------------------------------------------------------------------------
+
+    private bool ExtractArchive(
+        string archivePath,
+        string outputDir)
     {
         try
         {
-            using (var archiveFile = new ArchiveFile(archive))
+            string archiveType =
+                GetArchiveType(archivePath);
+
+            if (archiveType == null)
             {
-                foreach (var entry in archiveFile.Entries)
-                {
-                    if (!entry.IsFolder)
-                        entry.Extract(Path.Combine(outputDir, entry.FileName));
-                }
+                MessageBox.Show(
+                    "The downloaded file is not a valid ZIP or 7z archive.",
+                    "Extraction Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+
+                return false;
             }
 
-            return true;
+            Directory.CreateDirectory(outputDir);
+
+
+            // =============================================================
+            // ZIP extraction
+            // =============================================================
+
+            if (archiveType == "zip")
+            {
+                using (var zip =
+                    ZipFile.OpenRead(archivePath))
+                {
+                    string fullOutputDir =
+                        Path.GetFullPath(outputDir);
+
+                    foreach (var entry in zip.Entries)
+                    {
+                        // Directory entry
+                        if (string.IsNullOrEmpty(entry.Name))
+                            continue;
+
+                        string relativePath =
+                            entry.FullName
+                                .Replace(
+                                    '/',
+                                    Path.DirectorySeparatorChar
+                                )
+                                .Replace(
+                                    '\\',
+                                    Path.DirectorySeparatorChar
+                                )
+                                .TrimStart(
+                                    Path.DirectorySeparatorChar
+                                );
+
+                        string destination =
+                            Path.GetFullPath(
+                                Path.Combine(
+                                    outputDir,
+                                    relativePath
+                                )
+                            );
+
+                        // Security check: don't allow an archive
+                        // to write outside the selected game directory.
+                        if (!destination.StartsWith(
+                                fullOutputDir +
+                                Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException(
+                                $"Unsafe archive path detected: " +
+                                $"{entry.FullName}"
+                            );
+                        }
+
+                        string parentDirectory =
+                            Path.GetDirectoryName(destination);
+
+                        if (!string.IsNullOrEmpty(parentDirectory))
+                        {
+                            Directory.CreateDirectory(
+                                parentDirectory
+                            );
+                        }
+
+                        entry.ExtractToFile(
+                            destination,
+                            true
+                        );
+                    }
+                }
+
+                return true;
+            }
+
+
+            // =============================================================
+            // 7z extraction
+            // =============================================================
+
+            if (archiveType == "7z")
+            {
+                using (var archive =
+                    new ArchiveFile(archivePath))
+                {
+                    string fullOutputDir =
+                        Path.GetFullPath(outputDir);
+
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (entry.IsFolder)
+                            continue;
+
+                        string relativePath =
+                            entry.FileName
+                                .Replace(
+                                    '/',
+                                    Path.DirectorySeparatorChar
+                                )
+                                .Replace(
+                                    '\\',
+                                    Path.DirectorySeparatorChar
+                                )
+                                .TrimStart(
+                                    Path.DirectorySeparatorChar
+                                );
+
+                        string destination =
+                            Path.GetFullPath(
+                                Path.Combine(
+                                    outputDir,
+                                    relativePath
+                                )
+                            );
+
+                        // Security check.
+                        if (!destination.StartsWith(
+                                fullOutputDir +
+                                Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException(
+                                $"Unsafe archive path detected: " +
+                                $"{entry.FileName}"
+                            );
+                        }
+
+                        string parentDirectory =
+                            Path.GetDirectoryName(destination);
+
+                        if (!string.IsNullOrEmpty(parentDirectory))
+                        {
+                            Directory.CreateDirectory(
+                                parentDirectory
+                            );
+                        }
+
+                        entry.Extract(destination);
+                    }
+                }
+
+                return true;
+            }
+
+
+            return false;
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Extraction failed:\n{ex.Message}");
+            MessageBox.Show(
+                "Extraction failed:\n\n" +
+                $"{ex.Message}\n\n" +
+                "Archive type: " +
+                $"{GetArchiveType(archivePath) ?? "Unknown"}",
+                "Extraction Error",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+
             return false;
         }
     }
