@@ -1587,7 +1587,31 @@ namespace Tool_Hazard
                     }
                 }
             }
+        }
+
+        private void repackToolStripMenuItem3_Click(object sender, EventArgs e)
+        {
             //Repack.RepackFile(filePath);
+            //RE4 (2007) GCA Repack
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Filter = "Resident Evil 4 (2007) GCA Index (*.idxgca)|*.IDXGCA|All files (*.*)|*.*";
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string selectedFile = openFileDialog.FileName;
+
+                    //try catch errors
+                    try
+                    {
+                        Biohazard.GCA.Repack.RepackFile(selectedFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error:\n{ex.Message}", "GCA Tool",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
         }
     }
 }

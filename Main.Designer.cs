@@ -1155,10 +1155,10 @@
             // 
             // repackToolStripMenuItem3
             // 
-            repackToolStripMenuItem3.Enabled = false;
             repackToolStripMenuItem3.Name = "repackToolStripMenuItem3";
             repackToolStripMenuItem3.Size = new Size(224, 26);
             repackToolStripMenuItem3.Text = "Repack";
+            repackToolStripMenuItem3.Click += repackToolStripMenuItem3_Click;
             // 
             // whiteDayToolStripMenuItem
             // 
