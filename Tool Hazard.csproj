@@ -1,19 +1,17 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
-<PropertyGroup>
-  <OutputType>WinExe</OutputType>
-  <TargetFramework>net8.0-windows</TargetFramework>
-  <RootNamespace>Tool_Hazard</RootNamespace>
-  <Nullable>enable</Nullable>
-  <UseWindowsForms>true</UseWindowsForms>
-  <ImplicitUsings>enable</ImplicitUsings>
-  <ApplicationIcon>icon.ico</ApplicationIcon>
-  <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  <StartupObject>Tool_Hazard.Program</StartupObject>
-
-  <!-- Fix duplicate TargetFrameworkAttribute -->
-  <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
-</PropertyGroup>
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Tool_Hazard</RootNamespace>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <StartupObject>Tool_Hazard.Program</StartupObject>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+  </PropertyGroup>
 
   <ItemGroup>
     <None Remove="Biohazard\PIX\Res.res" />
@@ -58,9 +56,6 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Biohazard\PIX\Res.res" />
-    <EmbeddedResource Include="C:\Users\user\.nuget\packages\csharp-prs\2.1.3\build\csharp-prs.targets" />
-    <EmbeddedResource Include="C:\Users\user\.nuget\packages\csharp-prs\2.1.3\build\dlang-prs32.dll" />
-    <EmbeddedResource Include="C:\Users\user\.nuget\packages\csharp-prs\2.1.3\build\dlang-prs64.dll" />
     <EmbeddedResource Include="Resources\POWER-ON.WAV" />
   </ItemGroup>
 
@@ -90,26 +85,6 @@
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="C:\Users\user\.nuget\packages\csharp-prs\2.1.3\build\dlang-prs64.dll" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="C:\Users\user\.nuget\packages\csharp-prs\2.1.3\build\dlang-prs32.dll" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="C:\Users\user\.nuget\packages\csharp-prs\2.1.3\build\csharp-prs.targets" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="C:\Users\user\.nuget\packages\sevenzipextractor\1.0.19\build\x64\7z.dll" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="C:\Users\user\.nuget\packages\sevenzipextractor\1.0.19\build\x86\7z.dll" />
   </ItemGroup>
 
   <ItemGroup>
